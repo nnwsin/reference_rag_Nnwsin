@@ -62,3 +62,38 @@ Gemini LLM
       |
       v
 Answer + Sources
+
+## high level Architecture
+
+                                  +-------------------------------------------------------+
+                                  |                     FastAPI App                       |
+                                  |                     ([main.py])                       |
+                                  +---------------------------+---------------------------+
+                                                              |
+                               +------------------------------+------------------------------+
+                               |                                                             |
+                 +-------------v-------------+                                 +-------------v-------------+
+                 |     Documents Router      |                                 |        Chat Router        |
+                 |      ([documents.py])     |                                 |         ([chat.py])       |
+                 +-------------+-------------+                                 +-------------+-------------+
+                               |                                                             |
+             +-----------------+-----------------+                         +-----------------+-----------------+
+             |                                   |                         |                 |                 |
++------------v------------+         +------------v------------+   +--------v-------+  +------v------+  +--------v-------+
+|    Document Service     |         |   Document Repository   |   |   Retrieval    |  | LLM Service |  | Source Service |
+|  ([document_service.py])|         |([document_repository.py])|  |    Service     |  |([llm_service|  |([source_service|
++------------+------------+         +------------+------------+   +--------+-------+  |    .py])    |  |     .py])      |
+             |                                   |                         |          +------+------+  +----------------+
+      +------+------+                            |                         |                 |
+      |             |                            |                         |                 v
++-----v-----+ +-----v-----+                      v                         v          Gemini Flash LLM
+|FileStorage| | Ingestion |              data/documents.json           data/chroma
+|([file_... | |  Service  |                                           (Vector Store)
+|  .py])    | +-----+-----+                                                ^
++-----+-----+       |                                                      |
+      |       +-----+-----+                                                |
+      v       |           |                                       +--------+--------+
+ data/   +----v----+ +----v----+                                  |Embedding Service|
+ uploads | Document| |  Text   |                                  |  ([embedding_   |
+         | Loader  | |Splitter |                                  |  service.py])   |
+         +---------+ +---------+                                  +-----------------+
