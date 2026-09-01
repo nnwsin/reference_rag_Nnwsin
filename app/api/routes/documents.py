@@ -1,16 +1,29 @@
 from pathlib import Path
-from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, UploadFile
+
+from app.core.config import settings
+from app.core.exceptions import (
+    DocumentNotFoundException,
+    EmptyFileException,
+    InvalidFileTypeException,
+)
 from app.repositories.document_repository import (
     delete_document_metadata,
     get_all_documents,
     get_document,
-    save_document_metadata,
 )
-
+from app.schemas.documents import (
+    DocumentDeleteResponse,
+    DocumentListResponse,
+    DocumentUploadResponse,
+)
+from app.services.document_service import (
+    process_document,
+    save_uploaded_document,
+)
+from app.storage.file_storage import delete_file
 from app.vectorstore.chroma import delete_documents
-from app.services.ingestion_service import ingest_document
 
 
 router = APIRouter(
@@ -19,67 +32,34 @@ router = APIRouter(
 )
 
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+settings.upload_dir.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
-UPLOAD_DIR = Path("data/uploads")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-
-@router.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
+@router.post(
+    "/upload",
+    response_model=DocumentUploadResponse,
+)
+async def upload_document(
+    file: UploadFile = File(...),
+):
     if not file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="No file was provided.",
-        )
-
-    document_id = str(uuid4())
+        raise EmptyFileException()
 
     extension = Path(file.filename).suffix.lower()
 
-    if extension not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Unsupported file type. "
-                f"Allowed types: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
-            ),
-        )
+    if extension not in settings.allowed_extensions:
+        raise InvalidFileTypeException()
 
-    file_path = UPLOAD_DIR / f"{document_id}{extension}"
+    document_id, file_path = await save_uploaded_document(file)
 
-    try:
-        file_content = await file.read()
-        file_path.write_bytes(file_content)
-
-        chunks = ingest_document(
-            file_path=file_path,
-            document_id=document_id,
-            original_filename=file.filename,
-        )
-
-        save_document_metadata(
-                {
-                    "document_id": document_id,
-                    "original_filename": file.filename,
-                    "stored_filename": file_path.name,
-                    "content_type": file.content_type,
-                    "file_path": str(file_path),
-                    "chunks_created": len(chunks),
-                }
-            )
-
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to process the uploaded document.",
-        ) from exc
+    chunks = process_document(
+        file=file,
+        document_id=document_id,
+        file_path=file_path,
+    )
 
     return {
         "document_id": document_id,
@@ -90,7 +70,10 @@ async def upload_document(file: UploadFile = File(...)):
     }
 
 
-@router.get("")
+@router.get(
+    "",
+    response_model=DocumentListResponse,
+)
 async def get_documents():
     documents = get_all_documents()
 
@@ -100,31 +83,25 @@ async def get_documents():
     }
 
 
-@router.delete("/{document_id}")
-async def delete_document(document_id: str):
+@router.delete(
+    "/{document_id}",
+    response_model=DocumentDeleteResponse,
+)
+async def delete_document(
+    document_id: str,
+):
     document = get_document(document_id)
 
     if document is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Document not found.",
-        )
+        raise DocumentNotFoundException()
 
     file_path = Path(document["file_path"])
 
-    try:
-        delete_documents(document_id)
+    delete_documents(document_id)
 
-        if file_path.exists():
-            file_path.unlink()
+    delete_file(file_path)
 
-        delete_document_metadata(document_id)
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to delete the document.",
-        ) from exc
+    delete_document_metadata(document_id)
 
     return {
         "document_id": document_id,
