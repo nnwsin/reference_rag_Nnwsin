@@ -5,10 +5,7 @@ from app.repositories.document_repository import get_document
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.llm_service import get_llm
 from app.services.retrieval_service import retrieve_documents
-
 from app.services.source_service import build_sources
-
-
 
 router = APIRouter(
     prefix="/chat",
@@ -58,31 +55,22 @@ Question:
 
     # Generate answer using the LLM
     llm = get_llm()
-
     response = await llm.ainvoke(prompt)
 
     # Normalize Gemini's response into a plain string
     if isinstance(response.content, str):
         answer = response.content
-    else:
+    elif isinstance(response.content, list):
         answer = "".join(
-            block.get("text", "")
+            block.get("text", "") if isinstance(block, dict) else str(block)
             for block in response.content
-            if isinstance(block, dict)
         )
+    else:
+        answer = str(response.content)
 
-        if isinstance(response.content, str):
-            answer = response.content
-        else:
-            answer = "".join(
-            block.get("text", "")
-            for block in response.content
-            if isinstance(block, dict)
-        )
+    sources = build_sources(documents)
 
-        sources = build_sources(documents)
-
-        return {
-            "answer": answer,
-            "sources": sources,
-        }
+    return {
+        "answer": answer,
+        "sources": sources,
+    }

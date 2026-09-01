@@ -1,32 +1,30 @@
 import json
-from pathlib import Path
-
-
-METADATA_FILE = Path("data/documents.json")
+from app.core.config import settings
 
 
 def save_document_metadata(document: dict):
     documents = []
 
-    if METADATA_FILE.exists():
+    if settings.metadata_file.exists():
         documents = json.loads(
-            METADATA_FILE.read_text(encoding="utf-8")
+            settings.metadata_file.read_text(encoding="utf-8")
         )
 
     documents.append(document)
 
-    METADATA_FILE.write_text(
+    settings.metadata_file.parent.mkdir(parents=True, exist_ok=True)
+    settings.metadata_file.write_text(
         json.dumps(documents, indent=4),
         encoding="utf-8",
     )
 
 
 def get_all_documents():
-    if not METADATA_FILE.exists():
+    if not settings.metadata_file.exists():
         return []
 
     return json.loads(
-        METADATA_FILE.read_text(encoding="utf-8")
+        settings.metadata_file.read_text(encoding="utf-8")
     )
 
 
@@ -55,7 +53,8 @@ def delete_document_metadata(document_id: str):
     if len(updated_documents) == len(documents):
         return False
 
-    METADATA_FILE.write_text(
+    settings.metadata_file.parent.mkdir(parents=True, exist_ok=True)
+    settings.metadata_file.write_text(
         json.dumps(updated_documents, indent=4),
         encoding="utf-8",
     )
